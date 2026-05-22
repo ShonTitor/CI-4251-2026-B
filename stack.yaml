@@ -24,12 +24,6 @@ nix:
   enable: false
 system-ghc: true
 install-ghc: false
-extra-lib-dirs:
-  - /run/current-system/sw/lib  # if on NixOS
-
-configure-options:
-  postgresql-libpq-configure:
-    - --extra-lib-dirs=/path/to/nix/store/postgresql/lib
 # User packages to be built.
 # Various formats can be used as shown in the example below.
 #
