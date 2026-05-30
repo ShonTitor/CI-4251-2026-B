@@ -38,6 +38,8 @@ dependencies:
 - esqueleto
 - QuickCheck
 - hspec
+- singletons-base
+- singletons-th
 
 ghc-options:
 - -Wall

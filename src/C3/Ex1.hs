@@ -274,8 +274,8 @@ pParse0 = fmap OfHigher0 . precedence $
         [ PNeg <$  "-"
         ] |-<
     Atom pAtom
-pExpr :: Parsec String () (EPrec ExprPrec)
-pExpr = pParse0
+pExpre :: Parsec String () (EPrec ExprPrec)
+pExpre = pParse0
 
 pAtom :: Parsec String () (EPrec Atom)
 pAtom
@@ -453,14 +453,14 @@ instance RandomGenerator EvalMonad2 where
 -- ReaderT
 
 runInterpreter :: String -> IO ()
-runInterpreter s = case runParser (fully pExpr) () "" s of
+runInterpreter s = case runParser (fully pExpre) () "" s of
     Left pError -> print pError
     Right pe    -> runExceptT (runEvalMonad (eval pe)) >>= \case
         Left xError -> putStrLn xError
         Right res   -> print res
 
 runInterpreter2 :: (Double,Double) -> String -> IO (Double,Double)
-runInterpreter2 si s = case runParser (fully pExpr) () "" s of
+runInterpreter2 si s = case runParser (fully pExpre) () "" s of
     Left pError -> print pError >> pure si
     Right pe    -> case runStateT (runEvalMonad2 (eval pe)) si of
         Left xError -> putStrLn xError >> pure si

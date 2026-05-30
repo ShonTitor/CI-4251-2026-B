@@ -1,9 +1,9 @@
 module Test2.Sol where
 
 import Text.Parsec
+import Text.Parsec.Expr
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.List (intercalate)
 
 -- Leonardo López 25-91752
 -- Carla Gómez 25-91750
@@ -16,12 +16,12 @@ data Tipo = TNum
 instance Show Tipo where
     show TNum = "R"
     show TBool = "B"
-    show (TFun t1 t2) = show t1 ++ " -> " ++ show t2
+    show (TFun t1 t2) = "(" ++show t1 ++ " -> " ++ show t2  ++ ")"
 
-data Operator = Add | Sub | Mul | Div | Exp
+data Operador = Add | Sub | Mul | Div | Exp
     deriving (Eq)
 
-instance Show Operator where
+instance Show Operador where
     show Add = "+"
     show Sub = "-"
     show Mul = "*"
@@ -38,22 +38,44 @@ data Expr = Var String
           | Num Double
           | Boolean Bool
           | Print Expr
-          | Operation Operator Expr Expr
+          | Operation Operador Expr Expr
+          | Neg Expr
           deriving (Eq)
 
 instance Show Expr where
-    show (Var x) = x
-    show (Lambda x t e) = "/. " ++ x ++ " : " ++ show t ++ " => " ++ show e
-    show (App e1 e2) = show e1 ++ " " ++ show e2
-    show (If e1 e2 e3) = "if " ++ show e1 ++ " then " ++ show e2 ++ " else " ++ show e3
-    show (Seq es) = intercalate "; " $ map show es
-    show (Let x t e) = "let " ++ x ++ " : " ++ show t ++ " := " ++ show e
-    show (Assign x e) = x ++ " := " ++ show e
-    show (Num n) = show n
-    show (Boolean b) = if b then "true" else "false"
-    show (Print e) = "print " ++ show e
-    show (Operation op e1 e2) = show e1 ++ " " ++ show op ++ " " ++ show e2
-
+    showsPrec _ (Var x) = showString x
+    showsPrec p (Lambda x t e) = showParen (p > 0) $
+        showString "/. " . showString x . showString " : " . showString (show t) .
+        showString " => " . showsPrec 0 e
+    showsPrec p (App e1 e2) = showParen (p > 10) $
+        showsPrec 10 e1 . showChar ' ' . showsPrec 11 e2
+    showsPrec p (If c e1 e2) = showParen (p > 0) $
+        showString "if "   . showsPrec 0 c  .
+        showString " then " . showsPrec 0 e1 .
+        showString " else " . showsPrec 0 e2
+    showsPrec p (Seq es) = showParen (p > 0) $
+        foldr1 (\a b -> a . showString "; " . b) (map (showsPrec 1) es)
+    showsPrec _ (Let x t e) =
+        showString "let " . showString x . showString " : " . showString (show t) .
+        showString " := " . showsPrec 0 e
+    showsPrec _ (Assign x e) =
+        showString x . showString " := " . showsPrec 0 e
+    showsPrec p (Num n)     = showsPrec p n
+    showsPrec _ (Boolean b) = showString $ if b then "true" else "false"
+    showsPrec p (Print e)   = showParen (p > 10) $
+        showString "print " . showsPrec 11 e
+    showsPrec p (Operation op e1 e2) = showParen (p > prec) $
+        showsPrec lp e1 . showString (" " ++ show op ++ " ") . showsPrec rp e2
+      where
+        (prec, lp, rp) = case op of
+            Add -> (5, 5, 6)
+            Sub -> (5, 5, 6)
+            Mul -> (7, 7, 8)
+            Div -> (7, 7, 8)
+            Exp -> (8, 9, 8)
+    showsPrec p (Neg e) = showParen (p > 6) $
+        showChar '-' . showsPrec 7 e
+    
 typeCheck :: Map String Tipo -> Expr -> Either String Tipo
 typeCheck env (Var x) = case Map.lookup x env of
         Just t -> Right t
@@ -62,12 +84,12 @@ typeCheck env (Lambda x t e) = case typeCheck (Map.insert x t env) e of
         Right t' -> Right $ TFun t t'
         Left err -> Left err
 typeCheck env (App e1 e2) = case (t1, t2) of
+    (Left err, _) -> Left err
+    (_, Left err) -> Left err
     (Right (TFun argType retType), Right t2') -> if argType == t2'
         then Right retType
         else Left $ "Type mismatch: expected " ++ show argType ++ ", found " ++ show t2'
     (Right t1', _) -> Left $ "Type error: expected a function, found " ++ show t1'
-    (Left err, _) -> Left err
-    (_, Left err) -> Left err
     where
         t1 = typeCheck env e1
         t2 = typeCheck env e2
@@ -110,11 +132,152 @@ typeCheck env (Assign x e) = case Map.lookup x env of
 typeCheck env (Num _) = Right TNum
 typeCheck env (Boolean _) = Right TBool
 typeCheck env (Print e) = typeCheck env e
+typeCheck env (Neg e) = case typeCheck env e of
+    Right TNum -> Right TNum
+    Right t    -> Left $ "Type error in negation: expected R, found " ++ show t
+    Left err   -> Left err
 typeCheck env (Operation op e1 e2) = case (typeCheck env e1, typeCheck env e2) of
     (Right TNum, Right TNum) -> Right TNum
     (Right t1, Right t2) -> Left $ "Type error in operation: expected R and R, found " ++ show t1 ++ " and " ++ show t2
     (Left err, _) -> Left err
     (_, Left err) -> Left err
+
+keywords :: [String]
+keywords = ["if", "then", "else", "true", "false", "let", "print"]
+
+pWhiteSpace :: Parsec String () ()
+pWhiteSpace = skipMany $ space <|> newline <|> crlf <|> tab
+
+pBoolean :: Parsec String () Expr
+pBoolean = try (Boolean True <$ string "true") <|> try (Boolean False <$ string "false")
+
+pNumber :: Parsec String () Expr
+pNumber = f
+    <$> many1 digit
+    <*> optionMaybe (try (char '.' *> many1 digit))
+    <*> optionMaybe (try
+        ( (char 'e' <|> char 'E')
+        *> pure (,)
+        <*> optionMaybe (char '+' <|> char '-')
+        <*> many1 digit
+        ))
+    where
+    f :: [Char] -> Maybe [Char] -> Maybe (Maybe Char, [Char]) -> Expr
+    f intPart mFrac mExp =
+        let frac = maybe "" ('.' :) mFrac
+            expStr = case mExp of
+                Nothing -> ""
+                Just (mSign', expPart) -> "e" <> maybe "" (:[]) mSign' <> expPart
+        in Num $ read $ intPart <> frac <> expStr
+
+pTipo' :: Parsec String () Tipo
+pTipo' = between (char '(') (char ')') pTipo 
+                <|> (TNum <$ string "R") 
+                <|> (TBool <$ string "B")
+
+pTipo :: Parsec String () Tipo
+pTipo = f <$> pTipo' <* pWhiteSpace <*>
+    (Just <$> (pWhiteSpace *> string "->" *> pWhiteSpace *> pTipo)
+    <|> pure Nothing
+    )
+    where
+        f :: Tipo -> Maybe Tipo -> Tipo
+        f t1 Nothing = t1
+        f t1 (Just t2) = TFun t1 t2
+
+pVar :: Parsec String () Expr
+pVar = try $ notFollowedBy pKeyword *>
+    (merge <$> identifierStart <*> many identifierChar <*> identifierEnd)
+    where
+        pKeyword :: Parsec String () ()
+        pKeyword = choice $ map keyword keywords
+        keyword :: String -> Parsec String () ()
+        keyword s = try $ string s *> notFollowedBy (alphaNum <|> char '_' <|> char '\'')
+        identifierStart :: Parsec String () Char
+        identifierStart = letter <|> char '_'
+        identifierChar :: Parsec String () Char
+        identifierChar = alphaNum <|> char '_'
+        identifierEnd :: Parsec String () String
+        identifierEnd = many (char '\'')
+        merge :: Char -> String -> String -> Expr
+        merge start middle end = Var $ start : middle ++ end
+
+pLambda :: Parsec String () Expr
+pLambda = string "/." *> pWhiteSpace *>
+    (Lambda
+    <$> (extractString <$> pVar )
+    <*> (pWhiteSpace *> char ':' *> pWhiteSpace *> pTipo)
+    <*> (pWhiteSpace *> string "=>" *> pWhiteSpace *> pExpr))
+    where
+        extractString :: Expr -> String
+        extractString (Var s) = s
+        extractString _ = error "Expected a variable"
+
+pApp :: Parsec String () Expr
+pApp = f <$> pExpr' <*> many1 (try (skipMany1 (space <|> tab <|> newline <|> crlf) *> pExpr'))
+    where
+        f :: Expr -> [Expr] -> Expr
+        f = foldl App
+
+pIf :: Parsec String () Expr
+pIf = If
+    <$> (string "if" *> pWhiteSpace *> pExpr)
+    <*> (pWhiteSpace *> string "then" *> pWhiteSpace *> pExpr)
+    <*> (pWhiteSpace *> string "else" *> pWhiteSpace *> pExpr)
+
+pSeq :: Parsec String () Expr
+pSeq = f <$> pExpr <* pWhiteSpace <*> many (char ';' *> pWhiteSpace *> pExpr <* pWhiteSpace)
+    where
+        f :: Expr -> [Expr] -> Expr
+        f e1 [] = e1
+        f e1 es = Seq (e1 : es)
+
+pLet :: Parsec String () Expr
+pLet = Let
+    <$> (string "let" *> pWhiteSpace *> (extractVar <$> pVar))
+    <*> (pWhiteSpace *> char ':' *> pWhiteSpace *> pTipo)
+    <*> (pWhiteSpace *> string ":=" *> pWhiteSpace *> pExpr)
+    where
+        extractVar :: Expr -> String
+        extractVar (Var s) = s
+        extractVar _ = error "Expected a variable"
+
+pAssign :: Parsec String () Expr
+pAssign = Assign
+    <$> (extractVar <$> pVar)
+    <*> (pWhiteSpace *> string ":=" *> pWhiteSpace *> pExpr)
+    where
+        extractVar :: Expr -> String
+        extractVar (Var s) = s
+        extractVar _ = error "Expected a variable"
+
+pPrint :: Parsec String () Expr
+pPrint = Print <$> (string "print" *> pWhiteSpace *> pExpr)
+
+pExpr :: Parsec String () Expr
+pExpr = buildExpressionParser table (try pApp <|> pExpr')
+    where
+        table =
+            [ [ Infix  (Operation Exp <$ try (pWhiteSpace *> char '^' <* pWhiteSpace)) AssocRight ]
+            , [ Infix  (Operation Mul <$ try (pWhiteSpace *> char '*' <* pWhiteSpace)) AssocLeft
+              , Infix  (Operation Div <$ try (pWhiteSpace *> char '/' <* pWhiteSpace)) AssocLeft ]
+            , [ Prefix (Neg <$ try (pWhiteSpace *> char '-')) ]
+            , [ Infix  (Operation Add <$ try (pWhiteSpace *> char '+' <* pWhiteSpace)) AssocLeft
+              , Infix  (Operation Sub <$ try (pWhiteSpace *> char '-' <* pWhiteSpace)) AssocLeft ]
+            ]
+
+pExpr' :: Parsec String () Expr
+pExpr' = pWhiteSpace *>
+    (   pBoolean
+    <|> pNumber
+    <|> try pLambda
+    <|> try pIf
+    <|> try pLet
+    <|> try pAssign
+    <|> try pVar
+    <|> try pPrint
+    <|> between (char '(') (char ')') pSeq
+    )
 
 runL :: FilePath -> IO ()
 runL = undefined

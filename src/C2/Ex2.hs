@@ -1,6 +1,6 @@
 module C2.Ex2 where
 
-
+{-
 import Data.Kind
 import Text.Read (readMaybe)
 
@@ -241,4 +241,5 @@ instance Monad m => Monad (MyState s m) where
         in do
           sb <- msb
           pure $ sb s'
+-}
 -}
