@@ -1,0 +1,7 @@
+let double : R -> R := /. x : R => x * 2;
+let square : R -> R := /. x : R => x * x;
+let compose : (R -> R) -> (R -> R) -> R -> R := /. f : R -> R => /. g : R -> R => /. x : R => f (g x);
+let doubleSquare : R -> R := compose double square;
+print (double 5);
+print (square 4);
+print (doubleSquare 3)

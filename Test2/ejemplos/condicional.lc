@@ -1,0 +1,9 @@
+let not : B -> B := /. b : B => if b then false else true;
+let and : B -> B -> B := /. a : B => /. b : B => if a then b else false;
+let or  : B -> B -> B := /. a : B => /. b : B => if a then true else b;
+print (not true);
+print (not false);
+print (and true false);
+print (and true true);
+print (or false true);
+print (if and true true then 1 + 1 else 99)

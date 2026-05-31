@@ -1,0 +1,2 @@
+let factorial : R -> R := /. n : R => if n then n * factorial (n - 1) else 1;
+print (factorial 5)
