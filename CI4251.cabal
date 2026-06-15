@@ -37,6 +37,7 @@ library
       Lib
       Test1.Sol
       Test2.Sol
+      Test3.Sol
   other-modules:
       Paths_CI4251
   autogen-modules:
